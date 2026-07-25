@@ -371,10 +371,10 @@ if(firebaseReady){
    Cloud Functions) qui garde la clé côté serveur. */
 
 const OPERATORS = [
-  {id:'wave', name:'Wave', number:'+225 07 48 93 56 86', color:'#1DC8E0', code:'W'},
-  {id:'mtn', name:'MTN Mobile Money', number:'+225 05 74 53 36 36', color:'#FFCC00', code:'M'},
-  {id:'moov', name:'Moov Money', number:'+225 01 73 77 39 39', color:'#0072CE', code:'MV'},
-  {id:'orange', name:'Orange Money', number:'+225 07 49 97 09 18', color:'#FF6600', code:'OM'},
+  {id:'wave', name:'Wave', number:'+225 07 48 93 56 86', color:'#1DC8E0', code:'W', ussd:null},
+  {id:'mtn', name:'MTN Mobile Money', number:'+225 05 74 53 36 36', color:'#FFCC00', code:'M', ussd:'*133#'},
+  {id:'moov', name:'Moov Money', number:'+225 01 73 77 39 39', color:'#0072CE', code:'MV', ussd:'*155#'},
+  {id:'orange', name:'Orange Money', number:'+225 07 49 97 09 18', color:'#FF6600', code:'OM', ussd:'#144#'},
 ];
 const OPERATORS_INTL = [
   {id:'wave_intl', name:'Wave (international)', number:'+225 07 48 93 56 86', color:'#1DC8E0', code:'W'},
@@ -798,7 +798,11 @@ function toolStats(){
       ${OPERATORS.map(o=>`
         <div class="card"><div style="display:flex; align-items:center; gap:8px;">
           <span style="width:12px;height:12px;border-radius:50%;background:${o.color};display:inline-block;"></span>
-          <b>${o.name}</b></div><div class="note">${o.number}</div></div>`).join('')}
+          <b>${o.name}</b></div><div class="note">${o.number}</div>
+          ${o.ussd
+            ? `<a class="btn btn-blue" style="margin-top:8px; text-decoration:none; width:100%; justify-content:center;" href="tel:${encodeURIComponent(o.ussd)}">📱 Vérifier mon solde (${o.ussd})</a>`
+            : `<p class="note" style="margin-top:8px;">Vérifiez votre solde directement dans l'application Wave sur votre téléphone.</p>`}
+        </div>`).join('')}
     </div>
     <div class="card">
       <h3>Répartition par statut</h3>
