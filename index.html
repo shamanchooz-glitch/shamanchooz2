@@ -161,6 +161,11 @@
       <div class="field"><label>Lieu de naissance</label><input id="f_pob"></div>
       <div class="field"><label>Contact 1 (téléphone) <span class="required">*</span></label><input id="f_c1"></div>
       <div class="field"><label>Contact 2</label><input id="f_c2"></div>
+      <div class="field">
+        <label>Position GPS (optionnel)</label>
+        <button type="button" class="btn-ghost" style="width:100%; justify-content:center;" id="gpsBtn" onclick="partagerPosition()">📍 Partager ma position</button>
+        <p class="note" id="gpsStatus"></p>
+      </div>
       <div class="field"><label>Email</label><input type="email" id="f_email"></div>
       <div class="field"><label>Niveau d'étude</label><input id="f_etude"></div>
       <div class="field"><label>Poste souhaité <span class="required">*</span></label><input id="f_poste"></div>
@@ -278,6 +283,7 @@
     </div>
     <p class="note" id="loginError" style="color:#c0392b;"></p>
     <button class="btn-blue" style="width:100%; justify-content:center; margin-top:12px;" onclick="tryLogin()">Se connecter</button>
+    <p class="note" style="margin-top:14px;" id="firebaseWarn"></p>
   </div>
 
   <div id="adminPanel" class="hidden">
@@ -285,6 +291,60 @@
     <div style="padding:20px 16px; max-width:900px; margin:0 auto;" id="adminContent"></div>
   </div>
 </main>
+
+<!-- ===== Firebase (Auth + Realtime Database) ===== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script>
+/* ==========================================================
+   COLLEZ ICI le firebaseConfig obtenu dans la console Firebase
+   (Paramètres du projet → Général → Vos applications).
+   Ce ne sont PAS des clés secrètes — sans risque à publier. */
+const firebaseConfig = {
+  apiKey: "AIzaSyAKtWyi60eflPvA5ir8wfDsW5nSyYT7vPQ",
+  authDomain: "shaman-chooz-production.firebaseapp.com",
+  databaseURL: "https://shaman-chooz-production-default-rtdb.firebaseio.com",
+  projectId: "shaman-chooz-production",
+  storageBucket: "shaman-chooz-production.firebasestorage.app",
+  messagingSenderId: "794764056532",
+  appId: "1:794764056532:web:2c19db9bf118c5cadc2841"
+};
+let firebaseReady = false;
+try {
+  firebase.initializeApp(firebaseConfig);
+  firebaseReady = true;
+} catch(e) {
+  console.warn("Firebase non configuré : les données restent en mémoire locale uniquement.", e);
+}
+const db = firebaseReady ? firebase.database() : null;
+const storage = firebaseReady ? firebase.storage() : null;
+const auth = firebaseReady ? firebase.auth() : null;
+
+/* ==========================================================
+   COLLEZ ICI votre clé Google Maps (Maps Embed API activée).
+   Ce n'est pas une clé ultra-sensible, mais RESTREIGNEZ-LA à
+   votre domaine GitHub dans Google Cloud Console → Identifiants
+   → votre clé → "Restrictions relatives aux applications" →
+   "Sites web" → ajoutez https://votre-domaine.github.io/* */
+// La clé Google Maps est maintenant gérée directement depuis l'espace admin
+// (Statistiques → Configuration) et stockée dans Firebase — plus besoin de
+// modifier le code pour la changer.
+let MAPS_API_KEY = "";
+if(firebaseReady){
+  db.ref('config/mapsApiKey').on('value', (snap)=>{
+    const val = snap.val();
+    if(!val){
+      // Première utilisation : on enregistre la clé déjà transmise, comme valeur de départ.
+      db.ref('config/mapsApiKey').set("AIzaSyCi_2RtQxdKGCQ0KCw9lngYtT0czdZj5Wo");
+      return;
+    }
+    MAPS_API_KEY = val;
+    if(!document.getElementById('adminPanel').classList.contains('hidden')) renderAdmin();
+  });
+}
+</script>
 
 <script>
 /* ===================== DONNÉES EN MÉMOIRE =====================
@@ -310,7 +370,8 @@ const OPERATORS_INTL = [
 ];
 const AMOUNT_PRESETS = [1000,2500,5000,10000,25000,50000];
 
-let candidates = [
+let candidates = [];
+const seedCandidates = [
   {id:'SC-0101', nom:"Aïcha Kouadio", poste:"Assistante commerciale", pays:"Côte d'Ivoire", ville:"Abidjan",
    contact1:"0102030405", contact2:"", email:"aicha.k@example.com", etude:"Licence Gestion", exp:"2 ans centre d'appel",
    comp:"Excel, relation client", moti:"Progresser dans la vente", nat:"Ivoirienne", matri:"Célibataire", enfants:0,
@@ -320,12 +381,31 @@ let candidates = [
    comp:"Permis C, conduite longue distance", moti:"Stabilité pour ma famille", nat:"Ivoirienne", matri:"Marié(e)", enfants:2,
    statut:"actif", bloque:false, paiement:{montant:5000, operateur:"Orange Money", numero:"0708091011", ref:"TX9B3E7712", valide:true}, date:"2026-07-10"},
 ];
-let accessCode = "Shaman123chooz";
 let idCounter = 103;
+let accessCode = "Shaman123chooz";
+
+// ---------- Synchronisation Firebase en temps réel ----------
+// Sans firebaseConfig valide, l'app reste en mode démo local (données
+// perdues au rechargement, pas de synchronisation entre appareils).
+if(firebaseReady){
+  document.getElementById('firebaseWarn') && (document.getElementById('firebaseWarn').textContent = '');
+  db.ref('candidates').on('value', (snapshot)=>{
+    const data = snapshot.val() || {};
+    candidates = Object.keys(data).map(key => ({ id:key, ...data[key] }));
+    if(!document.getElementById('adminPanel').classList.contains('hidden')) renderAdmin();
+  });
+} else {
+  candidates = seedCandidates;
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const w = document.getElementById('firebaseWarn');
+    if(w) w.innerHTML = '⚠️ Mode démo : Firebase non configuré, les données ne sont pas partagées entre appareils.';
+  });
+}
 
 // ---------- Utilitaires ----------
 function uid(){ return 'SC-' + (idCounter++); }
 function txRef(){ return 'TX' + Math.random().toString(36).slice(2,10).toUpperCase(); }
+
 function qrUrl(data){ return 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&color=1B4FC4&bgcolor=FFFFFF&data=' + encodeURIComponent(data); }
 function fmt(n){ return Number(n).toLocaleString('fr-FR'); }
 
@@ -369,6 +449,7 @@ function prevStep(){ currentStep = Math.max(0, currentStep-1); updateSteps(); }
 
 // ---------- Photos ----------
 let photoId=null, photoFull=null, otherPhotos=[];
+
 function handlePhoto(input, boxId){
   const f = input.files[0]; if(!f) return;
   const reader = new FileReader();
@@ -378,6 +459,7 @@ function handlePhoto(input, boxId){
   };
   reader.readAsDataURL(f);
 }
+
 function addOtherPhoto(input){
   const f = input.files[0]; if(!f) return;
   if(otherPhotos.length>=10){ alert("Maximum 10 photos supplémentaires."); return; }
@@ -390,6 +472,7 @@ function addOtherPhoto(input){
     document.getElementById('otherPhotos').appendChild(img);
   };
   reader.readAsDataURL(f);
+
 }
 
 // ---------- Paiement candidat ----------
@@ -435,13 +518,28 @@ function updateSummary(){
 }
 document.addEventListener('input', (e)=>{ if(e.target.id==='payerNumber') updateSummary(); });
 
+// ---------- Géolocalisation du candidat (avec consentement) ----------
+let candidatePosition = null;
+function partagerPosition(){
+  if(!navigator.geolocation){ document.getElementById('gpsStatus').textContent = 'Non supporté sur cet appareil.'; return; }
+  document.getElementById('gpsStatus').textContent = "Demande d'autorisation…";
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      candidatePosition = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      document.getElementById('gpsStatus').innerHTML = '✅ Position partagée';
+      document.getElementById('gpsBtn').textContent = '📍 Position enregistrée';
+    },
+    ()=>{ document.getElementById('gpsStatus').textContent = 'Consentement refusé ou position indisponible.'; },
+    { enableHighAccuracy:true }
+  );
+}
+
 function submitPayment(){
   if(!selectedOperator){ alert("Choisissez un opérateur."); return; }
   const num = document.getElementById('payerNumber').value.trim();
   if(!num){ alert("Entrez votre numéro Mobile Money."); return; }
   const ref = txRef();
   const c = {
-    id: uid(),
     nom: document.getElementById('f_nom').value,
     poste: document.getElementById('f_poste').value,
     pays: document.getElementById('f_pays').value,
@@ -456,12 +554,18 @@ function submitPayment(){
     nat: document.getElementById('f_nat').value,
     matri: document.getElementById('f_matri').value,
     enfants: document.getElementById('f_enfants').value,
-    photoId, photoFull, otherPhotos,
+    photoId, photoFull, otherPhotos: otherPhotos.filter(Boolean),
+    position: candidatePosition, // {lat,lng} ou null si non partagée
     statut:'attente', bloque:false,
     paiement:{ montant:selectedAmount, operateur:selectedOperator.name, numero:num, ref, valide:false },
     date: new Date().toISOString().slice(0,10),
   };
-  candidates.push(c);
+  if(firebaseReady){
+    db.ref('candidates').push(c); // apparaît en temps réel dans l'admin, sur tous les appareils
+  } else {
+    c.id = uid();
+    candidates.push(c);
+  }
   document.getElementById('candidateFormWrap').classList.add('hidden');
   document.getElementById('candidateDone').classList.remove('hidden');
   document.getElementById('finalRef').textContent = ref;
@@ -601,6 +705,17 @@ function toolCandidateDetail(id){
           `<button class="btn-green" onclick="validerPaiement('${c.id}')">✅ Valider le paiement et activer le compte</button>`}
       </div>
 
+      ${c.position ? `
+      <div class="card-soft" style="margin:14px 0;">
+        <b>📍 Localisation partagée par le candidat</b>
+        ${MAPS_API_KEY ? `
+          <iframe width="100%" height="220" style="border:0; border-radius:12px; margin-top:8px;" loading="lazy"
+            src="https://www.google.com/maps/embed/v1/place?key=${MAPS_API_KEY}&q=${c.position.lat},${c.position.lng}">
+          </iframe>` : `<p class="note">Ajoutez votre clé Google Maps dans l'onglet Statistiques → Configuration pour voir la carte ici.</p>`}
+        <a class="btn btn-ghost" style="margin-top:8px; display:inline-flex;" target="_blank"
+           href="https://www.google.com/maps?q=${c.position.lat},${c.position.lng}">Ouvrir dans Google Maps</a>
+      </div>` : `<p class="note">📍 Position non partagée par ce candidat.</p>`}
+
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn-ghost" onclick="toggleBloque('${c.id}')">🚫 ${c.bloque?'Débloquer':'Bloquer'}</button>
         <button class="btn-ghost" style="color:#c0392b;" onclick="supprimerCandidat('${c.id}')">🗑️ Supprimer</button>
@@ -613,13 +728,17 @@ function toolCandidateDetail(id){
     </div>`;
 }
 function validerPaiement(id){
+  if(firebaseReady){ db.ref('candidates/'+id).update({ statut:'actif', 'paiement/valide': true }); return; }
   const c = candidates.find(x=>x.id===id); c.paiement.valide=true; c.statut='actif'; renderAdmin('candidats');
 }
 function toggleBloque(id){
-  const c = candidates.find(x=>x.id===id); c.bloque=!c.bloque; renderAdmin('candidats');
+  const c = candidates.find(x=>x.id===id);
+  if(firebaseReady){ db.ref('candidates/'+id).update({ bloque: !c.bloque }); return; }
+  c.bloque=!c.bloque; renderAdmin('candidats');
 }
 function supprimerCandidat(id){
   if(!confirm('Supprimer ce candidat ?')) return;
+  if(firebaseReady){ db.ref('candidates/'+id).remove(); selectedCandidateId=null; renderAdmin('candidats'); return; }
   candidates = candidates.filter(x=>x.id!==id); selectedCandidateId=null; renderAdmin('candidats');
 }
 
@@ -676,6 +795,13 @@ function toolStats(){
         <div style="height:10px;width:${Math.round(attente/total*100)}%;background:var(--blue);border-radius:5px;"></div></div>
     </div>
     <div class="card" style="margin-top:18px;">
+      <h3>📍 Configuration Google Maps</h3>
+      <p class="note">Collez votre clé API Google Maps ici — elle s'active immédiatement, sur tous les appareils, sans toucher au code.</p>
+      <div class="field"><label>Clé API</label><input id="mapsKeyInput" placeholder="AIzaSy..." value="${MAPS_API_KEY}"></div>
+      <p class="note" id="mapsKeyMsg"></p>
+      <button class="btn-blue" onclick="saveMapsKey()">Enregistrer la clé</button>
+    </div>
+    <div class="card" style="margin-top:18px;">
       <h3>Changer le code d'accès administrateur</h3>
       <div class="field"><label>Code actuel</label>
         <div class="pass-wrap"><span class="lock">🔒</span><input type="password" id="curCode"><button class="eye" onclick="toggleShow('curCode',this)">👁️</button></div></div>
@@ -685,13 +811,22 @@ function toolStats(){
       <button class="btn-blue" onclick="changeCode()">Mettre à jour</button>
     </div>`;
 }
+function saveMapsKey(){
+  const val = document.getElementById('mapsKeyInput').value.trim();
+  const msg = document.getElementById('mapsKeyMsg');
+  if(!firebaseReady){ msg.textContent = "Firebase non configuré."; msg.style.color='#c0392b'; return; }
+  db.ref('config/mapsApiKey').set(val)
+    .then(()=>{ msg.textContent = 'Clé enregistrée — active immédiatement partout.'; msg.style.color='var(--green)'; })
+    .catch(()=>{ msg.textContent = "Erreur lors de l'enregistrement."; msg.style.color='#c0392b'; });
+}
+
 function changeCode(){
   const cur = document.getElementById('curCode').value;
   const next = document.getElementById('newCode').value;
   const msg = document.getElementById('codeMsg');
   if(cur !== accessCode){ msg.textContent='Code actuel incorrect'; msg.style.color='#c0392b'; return; }
   if(next.length < 6){ msg.textContent='Le nouveau code doit faire 6 caractères minimum'; msg.style.color='#c0392b'; return; }
-  accessCode = next; msg.textContent='Code modifié avec succès'; msg.style.color='var(--green)';
+  accessCode = next; msg.textContent='Code modifié avec succès (valable jusqu\'au rechargement de la page)'; msg.style.color='var(--green)';
 }
 
 function toolGeoloc(){
