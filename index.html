@@ -157,7 +157,20 @@
     <!-- Etape 0 : infos -->
     <div id="cstep0" class="grid2">
       <div class="field"><label>Nom complet <span class="required">*</span></label><input id="f_nom"></div>
-      <div class="field"><label>Date de naissance</label><input type="date" id="f_dob"></div>
+      <div class="field">
+        <label>Date de naissance</label>
+        <div style="display:grid; grid-template-columns:1fr 1.4fr 1fr; gap:8px;">
+          <select id="f_dob_day"><option value="">Jour</option></select>
+          <select id="f_dob_month">
+            <option value="">Mois</option>
+            <option value="01">Janvier</option><option value="02">Février</option><option value="03">Mars</option>
+            <option value="04">Avril</option><option value="05">Mai</option><option value="06">Juin</option>
+            <option value="07">Juillet</option><option value="08">Août</option><option value="09">Septembre</option>
+            <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">Décembre</option>
+          </select>
+          <select id="f_dob_year"><option value="">Année</option></select>
+        </div>
+      </div>
       <div class="field"><label>Lieu de naissance</label><input id="f_pob"></div>
       <div class="field"><label>Contact 1 (téléphone) <span class="required">*</span></label><input id="f_c1"></div>
       <div class="field"><label>Contact 2</label><input id="f_c2"></div>
@@ -541,6 +554,7 @@ function submitPayment(){
   const ref = txRef();
   const c = {
     nom: document.getElementById('f_nom').value,
+    dateNaissance: getDobValue(),
     poste: document.getElementById('f_poste').value,
     pays: document.getElementById('f_pays').value,
     ville: document.getElementById('f_ville').value,
@@ -686,6 +700,7 @@ function toolCandidateDetail(id){
         ${statutBadge(c)}
       </div>
       <div class="grid2" style="margin:16px 0;">
+        <div><label>Date de naissance</label>${c.dateNaissance||'—'}</div>
         <div><label>Contact 1</label>${c.contact1||'—'}</div>
         <div><label>Contact 2</label>${c.contact2||'—'}</div>
         <div><label>Email</label>${c.email||'—'}</div>
@@ -797,7 +812,15 @@ function toolStats(){
     <div class="card" style="margin-top:18px;">
       <h3>📍 Configuration Google Maps</h3>
       <p class="note">Collez votre clé API Google Maps ici — elle s'active immédiatement, sur tous les appareils, sans toucher au code.</p>
-      <div class="field"><label>Clé API</label><input id="mapsKeyInput" placeholder="AIzaSy..." value="${MAPS_API_KEY}"></div>
+      <div class="field">
+        <label>Clé API</label>
+        <div class="pass-wrap">
+          <span class="lock">🔒</span>
+          <input type="password" id="mapsKeyInput" placeholder="AIzaSy..." value="${MAPS_API_KEY}" readonly>
+          <button class="eye" onclick="toggleShow('mapsKeyInput',this)">👁️</button>
+        </div>
+        <button class="btn-ghost" style="margin-top:8px;" id="mapsUnlockBtn" onclick="unlockMapsKey()">🔓 Déverrouiller pour modifier</button>
+      </div>
       <p class="note" id="mapsKeyMsg"></p>
       <button class="btn-blue" onclick="saveMapsKey()">Enregistrer la clé</button>
     </div>
@@ -811,12 +834,34 @@ function toolStats(){
       <button class="btn-blue" onclick="changeCode()">Mettre à jour</button>
     </div>`;
 }
+function unlockMapsKey(){
+  const input = document.getElementById('mapsKeyInput');
+  const btn = document.getElementById('mapsUnlockBtn');
+  const locked = input.hasAttribute('readonly');
+  if(locked){
+    input.removeAttribute('readonly');
+    input.type = 'text';
+    input.focus();
+    btn.textContent = '🔒 Verrouiller';
+  } else {
+    input.setAttribute('readonly','readonly');
+    input.type = 'password';
+    btn.textContent = '🔓 Déverrouiller pour modifier';
+  }
+}
 function saveMapsKey(){
   const val = document.getElementById('mapsKeyInput').value.trim();
   const msg = document.getElementById('mapsKeyMsg');
   if(!firebaseReady){ msg.textContent = "Firebase non configuré."; msg.style.color='#c0392b'; return; }
   db.ref('config/mapsApiKey').set(val)
-    .then(()=>{ msg.textContent = 'Clé enregistrée — active immédiatement partout.'; msg.style.color='var(--green)'; })
+    .then(()=>{
+      msg.textContent = 'Clé enregistrée — active immédiatement partout.'; msg.style.color='var(--green)';
+      // Reverrouillage automatique après sauvegarde pour éviter toute modification accidentelle.
+      const input = document.getElementById('mapsKeyInput');
+      const btn = document.getElementById('mapsUnlockBtn');
+      input.setAttribute('readonly','readonly'); input.type='password';
+      if(btn) btn.textContent = '🔓 Déverrouiller pour modifier';
+    })
     .catch(()=>{ msg.textContent = "Erreur lors de l'enregistrement."; msg.style.color='#c0392b'; });
 }
 
@@ -852,6 +897,29 @@ function activerGPS(){
 }
 
 // ---------- Init ----------
+// ---------- Remplissage des menus Jour / Année (date de naissance) ----------
+(function initDobSelectors(){
+  const dayEl = document.getElementById('f_dob_day');
+  const yearEl = document.getElementById('f_dob_year');
+  for(let d=1; d<=31; d++){
+    const opt = document.createElement('option');
+    opt.value = String(d).padStart(2,'0'); opt.textContent = d;
+    dayEl.appendChild(opt);
+  }
+  const currentYear = new Date().getFullYear();
+  for(let y=currentYear-16; y>=currentYear-80; y--){
+    const opt = document.createElement('option');
+    opt.value = String(y); opt.textContent = y;
+    yearEl.appendChild(opt);
+  }
+})();
+function getDobValue(){
+  const d = document.getElementById('f_dob_day').value;
+  const m = document.getElementById('f_dob_month').value;
+  const y = document.getElementById('f_dob_year').value;
+  return (d && m && y) ? `${y}-${m}-${d}` : "";
+}
+
 renderAmounts();
 renderOperators();
 updateSteps();
