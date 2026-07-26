@@ -119,6 +119,11 @@
   .note{font-size:14px; color:var(--gray); margin-top:10px;}
   .country-tabs{display:flex; gap:8px; margin-bottom:16px;}
   .country-tabs button{flex:1; justify-content:center;}
+  @media print{
+    header, .sidebar, .footer-nav, .btn-ghost, .btn-blue, .btn-green, .btn-pink, .quick-links, nav{ display:none !important; }
+    body{ font-size:13px; }
+    .card, .card-soft{ border:1px solid #ccc; break-inside:avoid; }
+  }
   @media (max-width:480px){
     .brand h1{font-size:16.5px;} .amount-grid{grid-template-columns:repeat(2,1fr);}
   }
@@ -251,16 +256,24 @@
       <h3 style="margin-top:22px;">3. Votre numéro Mobile Money</h3>
       <div class="field"><input id="payerNumber" placeholder="07 00 00 00 00"></div>
 
+      <h3 style="margin-top:22px;">4. Référence de paiement reçue</h3>
+      <p class="note">Après votre transfert, l'opérateur vous envoie un SMS avec une référence de transaction. Recopiez-la ou collez-la ici (validation automatique dès 6 caractères).</p>
+      <div class="field">
+        <input id="paymentRefInput" placeholder="Ex: MP240726.1234.A12345" oninput="checkRefValidity()">
+      </div>
+      <p class="note" id="refStatus"></p>
+
       <div class="card-soft">
         <b>Résumé</b>
         <div class="row-between" style="margin-top:8px;"><span>Bénéficiaire</span><b>SHAMAN CHOOZ PRODUCTION</b></div>
         <div class="row-between"><span>Opérateur</span><b id="sumOp">--</b></div>
         <div class="row-between"><span>Votre numéro</span><b id="sumNum">--</b></div>
+        <div class="row-between"><span>Référence</span><b id="sumRef">--</b></div>
         <div class="row-between"><span>Montant</span><b id="sumAmount" style="color:var(--pink);">5 000 F CFA</b></div>
       </div>
 
-      <button class="btn-pink" style="width:100%; justify-content:center; margin-top:14px;" onclick="submitPayment()">💳 J'ai payé — Soumettre ma référence</button>
-      <p class="note">Après votre transfert, vous recevrez une référence de transaction de votre opérateur. L'administrateur vérifie et valide votre paiement avant l'activation de votre compte.</p>
+      <button class="btn-pink" style="width:100%; justify-content:center; margin-top:14px;" id="submitPayBtn" onclick="submitPayment()" disabled>💳 J'ai payé — Soumettre ma référence</button>
+      <p class="note">L'administrateur vérifie votre référence par rapport à son compte, puis valide votre paiement avant l'activation de votre compte.</p>
     </div>
 
     <div class="footer-nav">
@@ -422,6 +435,23 @@ function txRef(){ return 'TX' + Math.random().toString(36).slice(2,10).toUpperCa
 function qrUrl(data){ return 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&color=1B4FC4&bgcolor=FFFFFF&data=' + encodeURIComponent(data); }
 function fmt(n){ return Number(n).toLocaleString('fr-FR'); }
 
+// ---------- Conversion numéro local -> format international (WhatsApp) ----------
+const COUNTRY_CODES = {
+  "Côte d'Ivoire": "225", "Sénégal": "221", "Mali": "223", "Bénin": "229",
+  "Togo": "228", "France": "33", "Cameroun": "237", "Burkina Faso": "226", "Ghana": "233",
+};
+function whatsappNumber(contact, pays){
+  let digits = (contact || '').replace(/\D/g,'');
+  if(!digits) return '';
+  const code = COUNTRY_CODES[pays];
+  if(code){
+    if(digits.startsWith(code)) return digits; // déjà au format international
+    if(digits.startsWith('0')) digits = digits.slice(1); // retire le 0 initial local
+    return code + digits;
+  }
+  return digits; // pays inconnu : on laisse tel quel (l'utilisateur devra vérifier)
+}
+
 function toggleZoom(show){ document.getElementById('zoomOverlay').classList.toggle('hidden', !show); }
 function toggleShow(id, btn){
   const el = document.getElementById(id);
@@ -527,9 +557,27 @@ function renderOperators(){
 function updateSummary(){
   document.getElementById('sumOp').textContent = selectedOperator ? selectedOperator.name : '--';
   document.getElementById('sumNum').textContent = document.getElementById('payerNumber').value || '--';
+  document.getElementById('sumRef').textContent = document.getElementById('paymentRefInput').value || '--';
   document.getElementById('sumAmount').textContent = fmt(selectedAmount) + ' F CFA';
 }
-document.addEventListener('input', (e)=>{ if(e.target.id==='payerNumber') updateSummary(); });
+document.addEventListener('input', (e)=>{ if(e.target.id==='payerNumber' || e.target.id==='paymentRefInput') updateSummary(); });
+
+// ---------- Validation automatique de la référence de paiement ----------
+// Se déclenche dès que la référence saisie ou collée dépasse 6 caractères.
+function checkRefValidity(){
+  const val = document.getElementById('paymentRefInput').value.trim();
+  const status = document.getElementById('refStatus');
+  const btn = document.getElementById('submitPayBtn');
+  if(val.length > 6){
+    status.innerHTML = '✅ Référence valide';
+    status.style.color = 'var(--green)';
+    btn.disabled = false;
+  } else {
+    status.textContent = val.length ? `Encore ${7-val.length} caractère(s) minimum…` : '';
+    status.style.color = 'var(--gray)';
+    btn.disabled = true;
+  }
+}
 
 // ---------- Géolocalisation du candidat (avec consentement) ----------
 let candidatePosition = null;
@@ -551,7 +599,8 @@ function submitPayment(){
   if(!selectedOperator){ alert("Choisissez un opérateur."); return; }
   const num = document.getElementById('payerNumber').value.trim();
   if(!num){ alert("Entrez votre numéro Mobile Money."); return; }
-  const ref = txRef();
+  const ref = document.getElementById('paymentRefInput').value.trim();
+  if(ref.length <= 6){ alert("Entrez la référence de paiement reçue de votre opérateur (plus de 6 caractères)."); return; }
   const c = {
     nom: document.getElementById('f_nom').value,
     dateNaissance: getDobValue(),
@@ -682,7 +731,7 @@ function toolCandidatsList(){
         <div class="quick-links">
           <a href="tel:${c.contact1}">📞</a>
           <a href="sms:${c.contact1}">💬</a>
-          <a href="https://wa.me/${(c.contact1||'').replace(/\\D/g,'')}" target="_blank">🟢</a>
+          <a href="https://wa.me/${whatsappNumber(c.contact1, c.pays)}" target="_blank">🟢</a>
           <a href="mailto:${c.email||''}">✉️</a>
         </div>
         <button class="btn-blue" style="width:100%; justify-content:center;" onclick="selectedCandidateId='${c.id}'; renderAdmin('candidats')">Voir le dossier</button>
@@ -699,6 +748,29 @@ function toolCandidateDetail(id){
         <div><h2 style="margin-bottom:2px;">${c.nom}</h2><div class="note">${c.poste} — ${c.ville||''}, ${c.pays||''}</div></div>
         ${statutBadge(c)}
       </div>
+      <div class="quick-links">
+        <a href="tel:${c.contact1}">📞</a>
+        <a href="sms:${c.contact1}">💬</a>
+        <a href="https://wa.me/${whatsappNumber(c.contact1, c.pays)}" target="_blank">🟢</a>
+        <a href="mailto:${c.email||''}">✉️</a>
+      </div>
+
+      ${(c.photoId || c.photoFull || (c.otherPhotos && c.otherPhotos.length)) ? `
+      <div class="card-soft" style="margin:14px 0;">
+        <b>📷 Photos du candidat</b>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:10px;">
+          ${c.photoId ? `<div style="text-align:center;"><img src="${c.photoId}" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:2px solid var(--line);"><div class="note">Identité</div></div>` : ''}
+          ${c.photoFull ? `<div style="text-align:center;"><img src="${c.photoFull}" style="width:100px;height:130px;border-radius:12px;object-fit:cover;border:2px solid var(--line);"><div class="note">Photo entière</div></div>` : ''}
+        </div>
+        ${(c.otherPhotos && c.otherPhotos.length) ? `
+        <div style="margin-top:12px;">
+          <div class="note" style="margin-bottom:6px;">Autres photos (${c.otherPhotos.length})</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${c.otherPhotos.map(p=>`<img src="${p}" style="width:70px;height:70px;border-radius:10px;object-fit:cover;border:2px solid var(--line);">`).join('')}
+          </div>
+        </div>` : ''}
+      </div>` : `<p class="note">📷 Aucune photo fournie par ce candidat.</p>`}
+
       <div class="grid2" style="margin:16px 0;">
         <div><label>Date de naissance</label>${c.dateNaissance||'—'}</div>
         <div><label>Contact 1</label>${c.contact1||'—'}</div>
